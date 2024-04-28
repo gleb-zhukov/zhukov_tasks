@@ -1,206 +1,110 @@
-import uuid
-import os
-from ydb_func import *
-from datetime import datetime, timezone, timedelta
+import os 
+import json
 import telebot
-from all_keyboards import *
+from telebot.types import ReplyKeyboardRemove
+from build_date_func import *
 from static import *
+from task_func import *
+from ydb_func import *
+from all_keyboards import *
 
 if code_mode == 'dev':
     from dotenv import load_dotenv
     load_dotenv()
 
-
 tg_token = os.getenv('TG_TOKEN')
 bot = telebot.TeleBot(tg_token)
 
-def new_user(message):
-
-    user_id = message.from_user.id
+@bot.message_handler(func=lambda message: True)
+def message_handler(message):
+    # если пользователь ранее решил создать задачу или проект и есть отметка в ydb, забираем его сообщение в качестве текста задачи
+    result = ydb_get_user_data(message.chat.id, user_mode = True)
     
-    user_first_name = message.from_user.first_name
-    user_last_name = message.from_user.last_name
-    user_username = message.from_user.username
+    if result != False:
+        for item in result:
+            user_mode = item['user_mode']
 
-    if user_first_name != None:
-        full_name = user_first_name + ' ' 
-    if user_last_name != None:
-        full_name = full_name + user_last_name
-    if (user_first_name == None) and (user_last_name == None):
-        full_name = user_username
+        if user_mode == 1:
+            create_task(message.chat.id, data = message.text, user_mode = user_mode)
+            bot.send_message(message.chat.id, 'Напишите текст задачи:')
+            bot.delete_message(message.chat.id, message.message_id)
+            bot.delete_message(message.chat.id, message.message_id-1)
+            return
+        elif user_mode == 2:
+            text = create_task(message.chat.id, data = message.text, user_mode = user_mode)
+            bot.send_message(message.chat.id, text = text, reply_markup=build_task_markup(message.chat.id))
+            bot.delete_message(message.chat.id, message.message_id)
+            bot.delete_message(message.chat.id, message.message_id-1)
+            return
+    elif result == False:
+        new_user(message)
+        bot.send_message(message.chat.id, text = start_text, reply_markup=ReplyKeyboardRemove())
+        return
 
-    ydb_update_user_data(user_id, user_full_name = full_name, user_mode = 0)
-
-    return 
-
-# user_mode: 0 - default, 1 - ввод заголовка задачи, 2 - ввод текста задачи
-#создание задачи
-def create_task(user_id, data = None, user_mode = 0):
-    # если пользователь только начал создавать задачу
-    if (data == None) and (user_mode == 0):
-        # вносим отметку что юзер создает задачу
-        ydb_update_user_data(user_id, user_mode = 1)
+    if message.text == '/new_task':
+        create_task(message.chat.id)
+        bot.send_message(message.chat.id, 'Напишите название задачи:')
+        bot.delete_message(message.chat.id, message.message_id)
         return
     
-    # если пользователь внес заголовок задачи
-    elif (data != None) and (user_mode == 1):
-        task_header = data
+    elif message.text == '/main_menu':
+        bot.send_message(message.chat.id, 'Мои задачи', reply_markup=build_task_terms_markup())
+        bot.delete_message(message.chat.id, message.message_id)
+        return
 
-        task_id = uuid.uuid4()
-        task_id = str(task_id)
-        ydb_update_user_data(user_id, user_task_id = task_id, user_mode = 2)
-        ydb_update_task_data(task_id, task_owner_id = user_id, task_header = task_header)
+    else: 
+        bot.send_message(message.chat.id, 'О, это ты? Привет!')
+        return
 
-    # если пользователь внес текст задачи
-    elif (data != None) and (user_mode == 2):
-        task_body = data
+@bot.callback_query_handler(func=lambda call: True)
+def callback_query(call):
+    if 'main_menu' in call.data:
+        bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id, text='Мои задачи', reply_markup=build_task_terms_markup())
+        return
+    elif 'task_id_' in call.data:
+        set_user_task(call.message.chat.id, data = call.data)
+        bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id, text = build_task_text(call.message.chat.id, data = call.data), reply_markup=build_task_markup(call.from_user.id, data = call.data))
+        return
+    elif 'delete_task' in call.data:
+        delete_task(call.message.chat.id)
+        bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id, text='Мои задачи', reply_markup=build_task_terms_markup())
+        bot.answer_callback_query(call.id, 'Задача удалена')
+        return
+    elif 'switch_month_' in call.data:
+        bot.edit_message_reply_markup(call.from_user.id, call.message.message_id, reply_markup=build_days(call.data))
+        return
+    elif 'day_' in call.data:
+        bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id, text='Выберите час:', reply_markup=build_hours(call.data))
+        return
+    elif 'hour_' in call.data:
+        bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id, text='Выберите минуты:', reply_markup=build_minutes(call.data))
+        return    
+    elif 'date_' in call.data:
+        bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id, text=set_deadline(call.message.chat.id, call.data), reply_markup=build_task_markup(call.message.chat.id))
+        return
+    elif 'set_deadline' in call.data:
+        bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id, text='Выберите день:', reply_markup=build_days())
+        return
+    elif 'set_status' in call.data:
+        set_task_status(call.message.chat.id, call.data)
+        bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id, text = build_task_text(call.message.chat.id), reply_markup=build_task_markup(call.from_user.id))
+        bot.answer_callback_query(call.id, 'Статус задачи успешно изменён')
+    elif 'term_' in call.data:
+        text = 'Мои задачи'
+        bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id, text=text, reply_markup=build_task_headers(call.message.chat.id, call.data))
+        return
+    else:
+        bot.answer_callback_query(call.id)
 
-        result = ydb_get_user_data(user_id, user_task_id = True)
-        for item in result:
-            user_task_id = item['user_task_id']
+if code_mode == 'dev':
+    bot.infinity_polling()
 
-        task_id = user_task_id
-
-        status = 'active'
-
-        ydb_update_user_data(user_id, user_mode = 0)
-        ydb_update_task_data(task_id, task_owner_id = user_id, task_body = task_body, task_status = status)
-
-        text = build_task_text(user_id, task_id = task_id)
-        return text
-
-
-# текст задачи
-def build_task_text(user_id, data = None, task_id = None):
-    text = ''
-
-    # если есть data
-    if (data is not None):
-        start = len('task_id_')
-        end = len(data)
-        task_id = data[start:end]
-    # если нет data и нет task_id
-    elif (data is None) and (task_id is None):
-        result = ydb_get_user_data(user_id, user_task_id = True)
-        for item in result:
-            user_task_id = item['user_task_id']
-            task_id = user_task_id
-
-    
-    result = ydb_get_task_data(task_id, task_header = True, task_body = True, task_deadline = True)
-    for item in result:
-        task_header = item['task_header']
-        task_body = item['task_body']
-        task_deadline = item['task_deadline']
-
-    text = task_header + '\n\n' + task_body
-
-    if task_deadline is not None:
-        deadline_text = deadline_calculator(task_deadline)
-        text = text + '\n\n' + deadline_text
-
-    return text
-
-def deadline_calculator(task_deadline):
-
-    unix = task_deadline
-
-    date_now = datetime.now(timezone(timedelta(hours=3)))
-    unix2 = date_now.timestamp()
-    
-    seconds = unix-unix2
-    
-    task_date = datetime.fromtimestamp(unix).strftime('%d.%m.%Y %H:%M')
-
-    text = 'Выполнить до: ' + task_date + '\n'
-
-    if seconds < 0:
-        seconds = abs(seconds)
-        text = text + 'Просрочено на: '
-    elif seconds > 0:
-        text = text + 'Осталось: '  
-
-    minutes, seconds = divmod(seconds, 60)
-    hours, minutes = divmod(minutes, 60)
-    days, hours = divmod(hours, 24) 
-    days = int(days)
-    hours = int(hours)
-    minutes = int(minutes)
-
-    if days != 0:
-        text = text + str(days) + ' д '
-    if hours != 0:
-        text = text + str(hours) + ' ч '
-    text = text + str(minutes) + ' мин'
-    return text
-
-
-def set_deadline(user_id, data):
-    start = len('date_')
-    end = start + 4
-    data_year = data[start:end]
-
-    start = end+1
-    end = data.find('_', start)
-    data_month = data[start:end]
-    if int(data_month) < 10:
-        data_month = '0' + str(data_month)
-
-    start = end+1
-    end = data.find('_', start)
-    data_day = data[start:end]
-    if int(data_day) < 10:
-        data_day = '0' + str(data_day)
-
-    start = end+1
-    end = data.find('_', start)
-    data_hour = data[start:end]
-
-    start = end+1
-    end = len(data)
-    data_minute = data[start:end]
-
-    deadline  = data_year + '-' + data_month + '-' + data_day + ' ' + data_hour + ':' + data_minute + ':00' + '+0300'
-    result = datetime.strptime(deadline, '%Y-%m-%d %H:%M:%S%z')
-    unix_deadline = result.timestamp()   
-
-    result = ydb_get_user_data(user_id, user_task_id = True)
-    for item in result:
-        user_task_id = item['user_task_id']
-
-    task_id = user_task_id
-    
-    ydb_update_task_data(task_id, task_deadline = int(unix_deadline))
-    
-    text = build_task_text(user_id, task_id = task_id)
-    return text
-
-
-
-def set_task_status(user_id, data):
-
-    # получаем task_id по user_id из users
-    result = ydb_get_user_data(user_id, user_task_id = True)
-    for item in result:
-        user_task_id = item['user_task_id']
-    task_id = user_task_id     
-
-    # получаем новый status из data сообщения
-    start = len('set_status_')
-    end = len(data)
-    new_task_status = data[start:end]
-    
-    # task_deadline в данной функции обнуляется (null)
-    ydb_update_task_status(task_id, task_status = new_task_status)
-
-    return
-
-def set_user_task(user_id, data):
-
-    start = len('task_id_')
-    end = len(data)
-    task_id = data[start:end]
-
-    ydb_update_user_data(user_id, user_task_id = task_id)
-
-    return
+# use in YC
+def handler(event,context):
+    body = json.loads(event['body'])
+    update = telebot.types.Update.de_json(body)
+    bot.process_new_updates([update])
+    return {
+    'statusCode': 200,
+    'body': 'ok',
+    }
