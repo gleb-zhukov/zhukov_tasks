@@ -1,17 +1,18 @@
 import uuid
+import os
 from ydb_func import *
 from datetime import datetime, timezone, timedelta
 import telebot
 from all_keyboards import *
 from static import *
 
-# use in dev
-TELEGRAM_TOKEN = 'xxxxxxxxxxx:xxx'
-bot = telebot.TeleBot(TELEGRAM_TOKEN)
+if code_mode == 'dev':
+    from dotenv import load_dotenv
+    load_dotenv()
 
-# # use in yc
-# tg_token = os.getenv('TG_TOKEN')
-# bot = telebot.TeleBot(tg_token)
+
+tg_token = os.getenv('TG_TOKEN')
+bot = telebot.TeleBot(tg_token)
 
 def new_user(message):
 
