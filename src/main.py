@@ -1,30 +1,19 @@
-# use in DEV
+import os 
+import json
 import telebot
-from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardRemove
+from telebot.types import ReplyKeyboardRemove
 from build_date_func import *
 from static import *
 from task_func import *
 from ydb_func import *
 from all_keyboards import *
 
-TELEGRAM_TOKEN = 'xxxxxxxxxx:xxx'
-bot = telebot.TeleBot(TELEGRAM_TOKEN)
+if code_mode == 'dev':
+    from dotenv import load_dotenv
+    load_dotenv()
 
-# #use in YC
-# import os 
-# import json
-
-# import telebot
-# from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardRemove
-# from build_date_func import *
-# from static import *
-# from task_func import *
-# from ydb_func import *
-# from all_keyboards import *
-
-# tg_token = os.getenv('TG_TOKEN')
-# bot = telebot.TeleBot(tg_token)
-
+tg_token = os.getenv('TG_TOKEN')
+bot = telebot.TeleBot(tg_token)
 
 
 @bot.message_handler(func=lambda message: True)
@@ -111,18 +100,20 @@ def callback_query(call):
         bot.answer_callback_query(call.id)
 
 
-# use in dev
-bot.infinity_polling()
+        
+
+if code_mode == 'dev':
+    bot.infinity_polling()
 
 
 
 
-# # use in YC
-# def handler(event,context):
-#     body = json.loads(event['body'])
-#     update = telebot.types.Update.de_json(body)
-#     bot.process_new_updates([update])
-#     return {
-#     'statusCode': 200,
-#     'body': 'ok',
-#     }
+# use in YC
+def handler(event,context):
+    body = json.loads(event['body'])
+    update = telebot.types.Update.de_json(body)
+    bot.process_new_updates([update])
+    return {
+    'statusCode': 200,
+    'body': 'ok',
+    }
