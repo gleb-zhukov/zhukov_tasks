@@ -1,44 +1,34 @@
-# use in DEV
-import telebot
-from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
+# use 'prod' in YC
+code_mode = 'dev'
+
+import os
 import ydb
 import ydb.iam
 from datetime import datetime
+import telebot
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-# создаем драйвер YDB в global
-driver = ydb.Driver(
-  endpoint='xxx',
-  database='xxx',
-  credentials=ydb.AccessTokenCredentials('xxx')
-)
-# ждем пока драйвер станет активным для запросов
+if code_mode == 'dev':
+    from dotenv import load_dotenv
+    load_dotenv()
+
+    ydb_endpoint=os.getenv('YDB_ENDPOINT')
+    ydb_database=os.getenv('YDB_DATABASE')
+    ydb_token=os.getenv('YDB_TOKEN')
+
+    driver = ydb.Driver(endpoint=ydb_endpoint, database=ydb_database, credentials=ydb.AccessTokenCredentials(ydb_token))
+
+elif code_mode == 'prod':
+    ydb_endpoint=os.getenv('YDB_ENDPOINT')
+    ydb_database=os.getenv('YDB_DATABASE')
+
+    driver = ydb.Driver(endpoint=ydb_endpoint,database=ydb_database, credentials=ydb.iam.MetadataUrlCredentials())
+
 driver.wait(fail_fast=True, timeout=5)
 session = driver.table_client.session().create()
 
-TELEGRAM_TOKEN = 'xxxxxxxxxx:xxx'
-bot = telebot.TeleBot(TELEGRAM_TOKEN)
-
-# # use in YC
-# import os
-# import ydb
-# import ydb.iam
-# from datetime import datetime
-# import telebot
-# from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
-#
-# # создаем драйвер YDB в global
-# driver = ydb.Driver(
-#   endpoint=os.getenv('YDB_ENDPOINT'),
-#   database=os.getenv('YDB_DATABASE'),
-#   credentials=ydb.iam.MetadataUrlCredentials() #use in YC
-# )
-# # ждем пока драйвер станет активным для запросов
-# driver.wait(fail_fast=True, timeout=5)
-# session = driver.table_client.session().create()
-
-# tg_token = os.getenv('TG_TOKEN')
-# bot = telebot.TeleBot(tg_token)
-
+tg_token = os.getenv('TG_TOKEN')
+bot = telebot.TeleBot(tg_token)
 
 timestamp = datetime.now().timestamp()
 
